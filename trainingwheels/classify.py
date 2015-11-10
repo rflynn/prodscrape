@@ -19,11 +19,20 @@ import numpy as np
 import re
 from sklearn import cross_validation
 from sklearn import svm
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, HashingVectorizer
+from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import confusion_matrix
 from sklearn.naive_bayes import MultinomialNB
 import unicodedata
+from joblib import Parallel, delayed
+import sys
+from copy import deepcopy
 
+
+from_field = 'merch_product_name'
+from_field = 'description'
+to_field = 'bamx_product_category_id'
 
 # ref: http://zacstewart.com/2015/04/28/document-classification-with-scikit-learn.html
 
@@ -32,7 +41,7 @@ def norm(s):
     normal = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore')
     return u' '.join(re.findall('\w+', re.sub(r'<\/?\w+>', u' ', normal.lower())))
 
-assert norm(u'\N{LATIN SMALL LETTER E WITH GRAVE}') == 'e'
+assert norm(u'\N{LATIN SMALL LETTER E WITH GRAVE}') == u'e'
 
 category = {
     0: u'Unsure',
@@ -45,27 +54,46 @@ category = {
 }
 
 
-def trainfold(df, train_index):
+def train(df, from_field, train_index, test_index):
+    clf, vec = trainfold(df, from_field, train_index)
+    return clf, vec, testfold(df, clf, vec, test_index)
+
+def trainfold(df, from_field, train_index):
     '''
     given a dataframe and a kfold train_index
     build a classifier and vectorizer using df[train_index]
     '''
 
-    vectorizer = CountVectorizer(encoding='utf-8',
-                                 stop_words='english',
-                                 ngram_range=(1,1),
-                                 lowercase=True)
+    '''
+    # NOTE: this actually works pretty well, but isn't parallelizable...
+    vec = TfidfVectorizer(encoding='utf-8',
+                            lowercase=True,
+                            ngram_range=(1, 1),
+                            stop_words='english')
+    '''
 
-    counts = vectorizer.fit_transform(df['merch_product_name'][train_index])
+    vec = HashingVectorizer(decode_error='ignore',
+                            encoding='utf-8',
+                            lowercase=True,
+                            n_features=2 ** 16,
+                            ngram_range=(1, 1),
+                            non_negative=True,
+                            stop_words='english')
+
+    counts = vec.fit_transform(df[from_field][train_index])
 
     targets = df['bamx_product_category_id'][train_index]
 
-    #classifier = MultinomialNB()
-    classifier = svm.SVC(kernel='linear', probability=True)
-    #classifier = svm.LinearSVC()
+    #classifier = MultinomialNB() # fast notparallel? 96% acc, 5 sec, unsure 10%
+    #classifier = svm.SVC(kernel='linear', probability=True) # slow, 98% acc, 150 sec, unsure 5%
+    #classifier = svm.SVR(kernel='linear') # can't do multiclass and probability
+    classifier = SGDClassifier(loss='modified_huber', n_jobs=8) # fast 98% acc, 3 sec unsure 11%
+    #classifier = SGDClassifier(loss='log', n_jobs=8) # fast 97% acc, 27% unsure
+    #classifier = RandomForestClassifier(n_jobs=8) # slower, parallelizable, 97% acc, 100MB data, 25s, unsure 8%
+    #classifier = svm.LinearSVC() # can't do probability
     classifier.fit(counts, targets)
 
-    return classifier, vectorizer
+    return classifier, vec
 
 
 def testfold(df, classifier, vectorizer, test_index):
@@ -76,19 +104,14 @@ def testfold(df, classifier, vectorizer, test_index):
     # test
 
     cats = df['bamx_product_category_id'][test_index]
-    names = df['merch_product_name'][test_index]
+    names = df[from_field][test_index]
 
     predictions = classifier.predict(vectorizer.transform(names))
-    #predictions = classifier.predict_proba(vectorizer.transform(names))
+    predictions_prob = classifier.predict_proba(vectorizer.transform(names))
 
-    cm = confusion_matrix(cats, predictions)
-    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-
-    correct = sum(cat == p for cat, p in zip(cats, predictions))
-    '''
-    correct = sum(max(p) <= 0.98 or cat == p.argmax() + 2
-                    for cat, p in zip(cats, predictions))
-    '''
+    #correct = sum(cat == p for cat, p in zip(cats, predictions))
+    correct = sum(max(p) <= 0.90 or cat == p.argmax() + 2
+                    for cat, p in zip(cats, predictions_prob))
 
     '''
     for cat, name, p in zip(cats, names, predictions):
@@ -98,6 +121,9 @@ def testfold(df, classifier, vectorizer, test_index):
     '''
     print '%d of %d (%3.1f%%)' % (correct, len(test_index), float(correct) * 100 / len(test_index))
 
+    cm = confusion_matrix(cats, predictions)
+    cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+
     return cm_normalized
 
 
@@ -105,9 +131,13 @@ if __name__ == '__main__':
 
     pprint.pprint(category)
 
-    df = pandas.read_csv('merchant_product_cat_and_name_minus_1_fixed1.csv.gz',
+    # bamx_product_category_id
+
+    df = pandas.read_csv('merchant_product_cat_and_description_minus_1.tsv.gz',
+                        #'merchant_product_cat_and_description_minus_1.csv.gz',
                          encoding='utf8',
-                         compression='gzip')
+                         compression='gzip',
+                         sep='\t')
     df = df.reindex(np.random.permutation(df.index)).reset_index() # shuffle
     orig_df = df
     print 'len(df):', len(df)
@@ -145,29 +175,55 @@ if __name__ == '__main__':
     np.set_printoptions(suppress=True, precision=2)
 
     '''
+    # train
     for train_index, test_index in kf:
-        #print 'TRAIN:', len(train_index), train_index, 'TEST:', len(test_index), test_index
-        classifier, vectorizer = trainfold(df, train_index)
-        cm = testfold(df, classifier, vectorizer, test_index)
+        clf, vec, cm = train(df, from_field, train_index, test_index)
         print cm
     '''
+    # train
+    p = Parallel(n_jobs=len(kf))(delayed(train)(df, from_field, train_index, test_index)
+                    for train_index, test_index in kf)
+    print p
 
-    vectorizer = None
-    classifier = None
+    #pdb.set_trace()
+
+    # merge results
+    clfs = [clf for clf, _vec, _cm in p]
+    vecs = [vec for _clf, vec, _cm in p]
+
+    # merge multiple partial linear classifiers into one
+    clen = len(clfs)
+    clf = clfs.pop(0)
+    vec = vecs[0]
+
+    '''
+    # FIXME: this doesn't work...
+    for c in clfs:
+        #clf.coef_ += c.coef_
+        clf.dual_coef_ += c.dual_coef_
+        clf.support_vectors_ += c.support_vectors_
+        clf.intercept_ += c.intercept_
+    clf.coef_ /= clen
+    clf.dual_coef_ /= clen
+    clf.intercept_ /= clen
+    '''
+
+    vec = None
+    clf = None
 
     if os.path.exists('/tmp/vecdump.pickle'):
         with open('/tmp/vecdump.pickle') as f:
-            vectorizer = pickle.load(f)
+            vec = pickle.load(f)
 
     if os.path.exists('/tmp/clfdump.pickle'):
         with open('/tmp/clfdump.pickle') as f:
-            classifier = pickle.load(f)
+            clf = pickle.load(f)
 
-    if not (vectorizer and classifier):
+    if not (vec and clf):
         # train on whole dataset...
-        classifier, vectorizer = trainfold(df, np.array(xrange(len(df))))
+        clf, vec = trainfold(df, from_field, np.array(xrange(len(df))))
 
-    vecdump = pickle.dumps(vectorizer)
+    vecdump = pickle.dumps(vec)
     print 'vec pickled len:', len(vecdump)
     try:
         with open('/tmp/vecdump.pickle', 'w') as f:
@@ -175,7 +231,7 @@ if __name__ == '__main__':
     except:
         pass
 
-    clfdump = pickle.dumps(classifier)
+    clfdump = pickle.dumps(clf)
     print 'clf pickled len:', len(clfdump)
     try:
         with open('/tmp/clfdump.pickle', 'w') as f:
@@ -200,14 +256,19 @@ if __name__ == '__main__':
         norm(u'Microsoft Surface 3 10.8" Tablet 64GB Windows 8.1 - Walmart.com'),
         norm(u'Microsoft Surface 3 10.8" Tablet 64GB Windows 8.1'),
     ]
-    examples = orig_df['merch_product_name'][0:len(df)]
-    predictions = classifier.predict_proba(vectorizer.transform(examples))
+    examples = orig_df['description'][:len(df)]
+    predictions = clf.predict_proba(vec.transform(examples))
 
     d = defaultdict(list)
     for p, e in zip(predictions, examples):
         m = max(p)
         #print m, e, p
-        cat = p.argmax() + 2 if m > 0.80 else 0 # if unsure, don't use
+        cat = p.argmax() + 2 if m > 0.90 else 0 # if unsure, don't use
         d[category[cat]].append((round(m, 3), e))
-    pprint.pprint(dict(d))
+    for k, v in d.iteritems():
+        pprint.pprint((k, v[:5]))
+    #pprint.pprint(dict(d))
+    print 'len(df):', len(df)
+    unsurelen = len(d.get(u'Unsure', []))
+    print 'Unsure: %d (%.1f%%)' % (unsurelen, float(unsurelen) / len(df) * 100)
 
