@@ -67,6 +67,7 @@ class MerchantProductPartial(object):
         u'sokoglam.com': u'soko glam',
         u'shop.nordstrom.com': u'nordstrom',
         u'walgreens.com': u'walgreens',
+        u'www.birchbox.com': u'birchbox',
         u'www.drugstore.com': u'drugstore.com',
         u'www.intothegloss.com': u'into the gloss',
         u'www.jcrew.com': u'jcrew',
@@ -80,11 +81,16 @@ class MerchantProductPartial(object):
         u'www1.macys.com': u'macys',
     }
 
+    merch_name_canonical = {
+        u'birchbox united states': u'birchbox',
+    }
+
     # FIXME: ids not real
     merch_name_to_id = {
         u'barneys': 20,
         u'barneys new york': 20,
         u'birchbox': 15,
+        u'birchbox united states': 15,
         u"bloomingdale's": 1,
         u'chanel': 18,
         u'drugstore.com': 2,
@@ -267,7 +273,9 @@ class MerchantProductPartial(object):
     def merchant_name(self, x):
         if x:
             self._merchant_name = x.lower()
-            self._merch_id = MerchantProductPartial.merch_name_to_id.get(x.lower())
+            # canonicalize
+            self._merchant_name = MerchantProductPartial.merch_name_canonical.get(self._merchant_name, self._merchant_name)
+            self._merch_id = MerchantProductPartial.merch_name_to_id.get(self._merchant_name)
 
     @property
     def is_in_stock(self):
@@ -359,7 +367,7 @@ class MerchantProductPartial(object):
             try:
                 return Decimal(s)
             except:
-                m = re.search(r'[$](\d{1,2},\d{3}|\d{1,2}(?:\.\d{2})?)', s, re.UNICODE)
+                m = re.search(r'[$](\d{1,2},\d{3}|\d{1,3}(?:\.\d{2})?)', s, re.UNICODE)
                 if m:
                     return Decimal(m.groups()[0])
         return None
@@ -793,6 +801,12 @@ clf = make_classifier()
 vec = make_vectorizer()
 
 urls = [
+    'https://www.birchbox.com/shop/sedu-6000i-blow-dryer',
+    #'http://www.neimanmarcus.com/Aquazzura-Christy-Lace-Up-Pointed-Toe-Flat-Aquazzura/prod182720184_cat47570743__/p.prod?icid=&searchType=EndecaDrivenCat&rte=%252Fcategory.jsp%253FitemId%253Dcat47570743%2526pageSize%253D29%2526No%253D0%2526refinements%253D&eItemId=prod182720184&cmCat=product',
+    #'http://www.saksfifthavenue.com/main/ProductDetail.jsp?PRODUCT%3C%3Eprd_id=845524446864324&R=400876898709&P_name=Tome&Ntt=tome&N=0&bmUID=l3o8jS1',
+    #'http://www.sephora.com/mia-skin-cleansing-system-P285163?skuId=1311976&om_mmc=ppc-GG&mkwid=sMa5HlUsG&pcrid=50233217079&pdv=c&site=_search&country_switch=&lang=en&gclid=CMnbqdjaj8cCFcwXHwodyXkNOA',
+]
+'''
     'http://www.sephora.com/tinted-brow-gel-P187202',
     'http://shop.nordstrom.com/s/lancer-skincare-sheer-fluid-sun-shield-spf-30/3565107',
     'http://www.drugstore.com/herbacin-kamille-paraben-free-hand-cream/qxp336897',
@@ -822,6 +836,6 @@ urls = [
     'http://www.lordandtaylor.com/webapp/wcs/stores/servlet/en/lord-and-taylor/shoes/telluride-leather-and-halfcair-slide-sandals',
     'http://www.walmart.com/ip/44992748?findingMethod=wpa&cmp=-1&pt=hp&adgrp=-1&plmt=1145x345_B-C-OG_TI_8-20_HL_MID_HP&bkt=&pgid=0&adUid=16c32ae1-91ac-4944-9cd1-a66c46719a7d&adpgm=hl',
 ]
-
+'''
 for url in urls:
     print url_to_mp(url, clf, vec)
