@@ -801,7 +801,8 @@ clf = make_classifier()
 vec = make_vectorizer()
 
 urls = [
-    'https://www.birchbox.com/shop/sedu-6000i-blow-dryer',
+    'http://www.drugstore.com/products/prod.asp?pid=77210&catid=183263&aid=338666&aparam=77210&kpid=77210&CAWELAID=120142990000032756&CAGPSPN=pla',
+    #'https://www.birchbox.com/shop/sedu-6000i-blow-dryer',
     #'http://www.neimanmarcus.com/Aquazzura-Christy-Lace-Up-Pointed-Toe-Flat-Aquazzura/prod182720184_cat47570743__/p.prod?icid=&searchType=EndecaDrivenCat&rte=%252Fcategory.jsp%253FitemId%253Dcat47570743%2526pageSize%253D29%2526No%253D0%2526refinements%253D&eItemId=prod182720184&cmCat=product',
     #'http://www.saksfifthavenue.com/main/ProductDetail.jsp?PRODUCT%3C%3Eprd_id=845524446864324&R=400876898709&P_name=Tome&Ntt=tome&N=0&bmUID=l3o8jS1',
     #'http://www.sephora.com/mia-skin-cleansing-system-P285163?skuId=1311976&om_mmc=ppc-GG&mkwid=sMa5HlUsG&pcrid=50233217079&pdv=c&site=_search&country_switch=&lang=en&gclid=CMnbqdjaj8cCFcwXHwodyXkNOA',
